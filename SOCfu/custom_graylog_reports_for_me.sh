@@ -14,17 +14,17 @@ compute_number_of_unique_urls_visited_by_users_in_the_network(){
 
     echo "====================== Creating output file ============================"
     # Get the current date in dd_mm_yyyy format
-    current_date=$(date +%d_%m_%Y)
+    previous_date=$(date -d "yesterday" +%d_%m_%Y)
 
     # Define the output file name with the date appended
-    output_file="clean_firewall_report_of_all_urls_visited_on_${current_date}.csv"
+    output_file="clean_firewall_report_of_all_urls_visited_on_${previous_date}.csv"
 
     # Define temporary files
     temp_file="temp_urls.csv"
     sorted_file="sorted_urls.csv"
 
     # Count unique URLs and create the 'count' column
-    awk -F, 'NR==1{next} {url_count[$3]++} END {for (url in url_count) print "", url, url_count[url]}' OFS=, "$input_file" > "$temp_file"
+    awk -F, 'NR==1{next} {hostname_count[$2]++} END {for (hostname in hostname_count) print "", hostname, hostname_count[hostname]}' OFS=, "$input_file" > "$temp_file"
 
     # Add headers to the cleaned data
     sed -i '1s/^/timestamp,url,count\n/' "$temp_file"
@@ -148,6 +148,55 @@ what_platforms_are_people_visiting_on_the_internet(){
 
 }
 
+process_vpn_log_report(){
+
+    # Prompt the user for the input file path
+    read -p "Enter the path to the input CSV file for VPN logs: " input_file
+
+    # Check if the input file exists
+    if [[ ! -f "$input_file" ]]; then
+        echo "Input file not found!"
+        exit 1
+    fi
+
+    # Get the previous day's date in dd_mm_yyyy format
+    previous_date=$(date -d "yesterday" +%d_%m_%Y)
+
+    # Define the output file name with the date appended
+    output_file="clean_vpn_log_report_${previous_date}.csv"
+
+    # Define a temporary file for intermediate data
+    temp_file="temp_vpn.csv"
+
+    # Step 1: Remove rows where xauthuser is 'N/A'
+    awk -F, '$8 != "N/A"' "$input_file" > "$temp_file"
+
+    # Step 2: Remove the 'user', 'tunnelip', and 'tunneltype' columns
+    awk -F, '{OFS=","; print $1,$2,$3,$7,$8,$9,$10,$11}' "$temp_file" > "${temp_file}_2"
+
+    # Step 3: Count occurrences of each unique xauthuser and create a new 'count' column
+    awk -F, '
+    NR==1 {print $0,"count"; next}
+    {
+        xauthuser_count[$4]++;
+        data[$4] = $0
+    }
+    END {
+        for (xauthuser in xauthuser_count) {
+            print data[xauthuser],xauthuser_count[xauthuser]
+        }
+    }' "${temp_file}_2" > "${temp_file}_3"
+
+    # Step 4: Sort by the 'count' column in descending order
+    (head -n 1 "${temp_file}_3" && tail -n +2 "${temp_file}_3" | sort -t, -k9,9nr) > "$output_file"
+
+    # Clean up temporary files
+    rm "$temp_file" "${temp_file}_2" "${temp_file}_3"
+
+    echo "Processed file saved as $output_file"
+
+}
+
 create_excel_file_from_csvs(){
 
     # Prompt the user for the input files and output Excel file name
@@ -177,8 +226,58 @@ create_excel_file_from_csvs(){
 
 }
 
-compute_number_of_unique_urls_visited_by_users_in_the_network
-create_report_with_active_users_on_the_network
-what_services_are_our_users_interacting_with
-what_platforms_are_people_visiting_on_the_internet
-create_excel_file_from_csvs
+clean_netlogon_file(){
+
+    # Prompt user to enter the file paths for file1 and file2
+    read -p "Enter the path to the Alienvault net logon file: " file1
+    read -p "Enter the path to Graylog file with usernames: " file2
+
+    # Define the output filename
+    output_file="merged_output.csv"
+
+    # Check if both files exist
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+        echo "One or both of the files do not exist. Please check the filenames."
+        exit 1
+    fi
+
+    # Extract headers from file1 and create the output file with additional columns
+    header=$(head -n 1 "$file1")
+    echo "${header},unauthuser,srcip" > "$output_file"
+
+    # Debugging: Print the header
+    echo "Header: $header"
+
+    # Loop through each line in file1 (skipping the header)
+    tail -n +2 "$file1" | while IFS=, read -r computer_name count
+    do
+        # Debugging: Print the current line being processed
+        echo "Processing: $computer_name, $count"
+
+        # Find the corresponding line in file2 based on the computer_name/srcname
+        match=$(awk -v cn="$computer_name" -F, '$1 == cn {print $2","$3}' "$file2")
+        
+        # Debugging: Print the match found
+        echo "Match found: $match"
+        
+        # If a match is found, add the unauthuser and srcip to the output file
+        if [[ -n "$match" ]]; then
+            echo "${computer_name},${count},${match}" >> "$output_file"
+        else
+            # If no match is found, just add the computer_name and count to the output file
+            echo "${computer_name},${count},," >> "$output_file"
+        fi
+    done
+
+    echo "Merging complete. Output saved to $output_file."
+
+
+}
+# compute_number_of_unique_urls_visited_by_users_in_the_network
+# create_report_with_active_users_on_the_network
+# what_services_are_our_users_interacting_with
+# what_platforms_are_people_visiting_on_the_internet
+# create_excel_file_from_csvs
+# process_vpn_log_report
+# map_net_logon_file
+clean_netlogon_file
