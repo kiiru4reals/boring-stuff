@@ -197,35 +197,6 @@ process_vpn_log_report(){
 
 }
 
-create_excel_file_from_csvs(){
-
-    # Prompt the user for the input files and output Excel file name
-    read -p "Enter the path for the output Excel file: " output_excel
-
-    # Ensure we have the csvkit installed
-    if ! command -v csvstack &> /dev/null || ! command -v csvsql &> /dev/null; then
-        echo "csvkit is required but not installed. Please install it using 'pip install csvkit'."
-        exit 1
-    fi
-
-    # Define the output Excel file name
-    output_excel="${output_excel}.xlsx"
-
-    # Combine all CSVs into one Excel file with separate sheets
-    csvsql --query "
-        SELECT 'urls' AS sheet, * FROM clean_firewall_report_of_all_urls_visited_on_*.csv
-        UNION ALL
-        SELECT 'active_users' AS sheet, * FROM clean_firewall_report_of_active_users_*.csv
-        UNION ALL
-        SELECT 'services' AS sheet, * FROM cleaned_services_report_of_accessed_services_*.csv
-        UNION ALL
-        SELECT 'appcat' AS sheet, * FROM clean_report_on_categories_visited_*.csv" \
-    --no-header-row | csvstack -g "urls,active_users,services,appcat" --prefix '.' --group-by "sheet" | csvsql --query 'SELECT * FROM stdin ORDER BY "sheet"' > "$output_excel"
-
-    echo "Excel file with all reports saved as $output_excel"
-
-}
-
 clean_netlogon_file(){
 
     # Prompt user to enter the file paths for file1 and file2
